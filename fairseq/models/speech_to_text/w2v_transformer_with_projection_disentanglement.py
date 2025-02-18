@@ -28,6 +28,7 @@ from fairseq.models.speech_to_text.w2v_transformer_with_feat_fusion import (
 @dataclass
 class W2vTransformerWithProjectionDisentanglementConfig(W2vTransformerWithFeatFusionConfig):
     non_content_encoder_layers: Optional[int] = field(default=3)
+    mt_ckpt_path: Optional[str] = field(default=None)
 
 
 @register_model("w2v_transformer_with_projection_disentanglement",
@@ -36,8 +37,23 @@ class W2vTransformerWithProjectionDisentanglementModel(W2vTransformerWithFeatFus
     @classmethod
     def build_model(cls, cfg: W2vTransformerWithProjectionDisentanglementConfig, task):
         encoder_embed_tokens = cls.build_embedding(task.target_dictionary, cfg.encoder_embed_dim)
+        if cfg.mt_ckpt_path is not None:
+            # load embedding weights
+            mt_ckpt = torch.load(cfg.mt_ckpt_path)
+            encoder_embed_tokens.weight.data = mt_ckpt["model"]["encoder.embed_tokens.weight"]
         encoder = cls.build_encoder(cfg, task.target_dictionary, encoder_embed_tokens, len(task.speaker_to_id))
         decoder = cls.build_decoder(cfg, task.target_dictionary, encoder_embed_tokens)
+        if cfg.mt_ckpt_path is not None:
+            for n, p in encoder.content_encoders.named_parameters():
+                p.data = mt_ckpt["model"][f"encoder.layers.{n}"]
+            for n, p in encoder.transformer_layers.named_parameters():
+                l, k = n.split(".", maxsplit=1)
+                n = str(int(l) + 1) + "." + k
+                p.data = mt_ckpt["model"][f"encoder.layers.{n}"]
+            for n, p in decoder.named_parameters():
+                if n != "embed_tokens.weight":
+                    p.data = mt_ckpt["model"][f"decoder.{n}"]
+
         return cls(encoder, decoder)
 
     @classmethod
@@ -171,12 +187,13 @@ class W2vTransformerWithProjectionDisentanglementEncoder(W2vTransformerWithFeatF
                 non_content_feats = layer(non_content_feats, encoder_padding_mask)
             for layer in self.content_encoders:
                 x = layer(x, encoder_padding_mask)
+            ci_feats = x.clone()
             speaker_logits = self.speaker_classifier(non_content_feats.clone(),
                                                      encoder_padding_mask) if self.training else None
             noise_logits = self.noise_classifier(non_content_feats.clone(),
                                                  encoder_padding_mask) if self.training else None
             proj = self.projection(x, non_content_feats)
-            x = (x - proj).half()
+            x = x - proj
             purified_feats = x.clone()  # clone for consistency loss computing
 
             for layer in self.transformer_layers:
@@ -184,6 +201,7 @@ class W2vTransformerWithProjectionDisentanglementEncoder(W2vTransformerWithFeatF
         else:
             for layer in self.content_encoders:
                 x = layer(x, encoder_padding_mask)
+            text_repr = x.clone()
             for layer in self.transformer_layers:
                 x = layer(x, encoder_padding_mask)
 
@@ -198,6 +216,9 @@ class W2vTransformerWithProjectionDisentanglementEncoder(W2vTransformerWithFeatF
             "ctc_padding_mask": ctc_padding_mask if is_audio_input else None,
             "noise_logits": noise_logits if is_audio_input else None,
             "purified_feats": purified_feats if is_audio_input else None,
+            "non_content_feats": non_content_feats if is_audio_input else None,
+            "ci_feats": ci_feats if is_audio_input else None,
+            "text_repr": text_repr if not is_audio_input else None,
             "encoder_embedding": None,  # T x B x C
             "encoder_states": None,
             "src_tokens": None,

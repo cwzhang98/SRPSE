@@ -21,7 +21,7 @@ task:
   eval_bleu_detok: moses
   eval_tokenized_bleu: false
   eval_bleu_bpe: sentencepiece
-  eval_bleu_args: '{"beam": 5, "prefix_size": 1, "lenpen": 0.6}'
+  eval_bleu_args: '{"beam": 5, "prefix_size": 1, "lenpen": 0.2}'
   eval_bleu_print_samples: true
   lang_pairs: en-es
   lang_prefix_tok: <lang:es>

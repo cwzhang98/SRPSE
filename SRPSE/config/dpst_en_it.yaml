@@ -1,5 +1,6 @@
 common:
   fp16: true
+  fp16_scale_window: 5000
   log_format: json
   log_interval: 100
   tensorboard_logdir: ???
@@ -7,7 +8,7 @@ common:
 checkpoint:
   save_dir: ???
   restore_file: ???
-  keep_last_epochs: 20
+  keep_last_epochs: 15
   best_checkpoint_metric: bleu
   maximize_best_checkpoint_metric: true
   patience: 10
@@ -15,22 +16,23 @@ checkpoint:
 task:
   _name: speech_to_text_with_progressive_training
   data: ???
-  config_yaml: /home2/cwzhang98/dataset/mustc/en-fr/config_st.yaml
+  config_yaml: /home2/cwzhang98/dataset/mustc/en-it/config_st.yaml
   eval_bleu: true
   eval_bleu_detok: moses
   eval_tokenized_bleu: false
   eval_bleu_bpe: sentencepiece
-  eval_bleu_args: '{"beam": 5, "prefix_size": 1, "lenpen": 1.0}'
+  eval_bleu_args: '{"beam": 5, "prefix_size": 1, "lenpen": 0.3}'
   eval_bleu_print_samples: true
-  lang_pairs: en-fr
-  lang_prefix_tok: <lang:fr>
+  lang_pairs: en-it
+  lang_prefix_tok: <lang:it>
 
 criterion:
   _name: label_smoothed_cross_entropy_with_projection_disentanglement
   label_smoothing: 0.1
   report_accuracy: true
   ignore_prefix_size: 1
-  spk_weight: 1.0
+  consistency_weight: ???
+  jsd_weight: ???
 
 model:
   _name: w2v_transformer_with_projection_disentanglement
@@ -61,20 +63,20 @@ dataset:
   num_workers: 8
   max_tokens: 2500000
   train_subset: train_st_aug
-  valid_subset: dev_st
+  valid_subset: tst-COMMON_st
   update_epoch_batch_itr: false
   skip_invalid_size_inputs_valid_test: true
   batch_size: 100
 
 distributed_training:
   ddp_backend: legacy_ddp
-  distributed_world_size: 1
+  distributed_world_size: 2
 
 optimization:
   max_update: 500000
   clip_norm: 10.0
   lr: [1e-4]
-  update_freq: [2]
+  update_freq: [1]
 
 optimizer:
   _name: adam

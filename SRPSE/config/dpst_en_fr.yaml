@@ -16,15 +16,15 @@ checkpoint:
 task:
   _name: speech_to_text_with_progressive_training
   data: ???
-  config_yaml: /home2/cwzhang98/dataset/mustc/en-de/config_st.yaml
+  config_yaml: /home2/cwzhang98/dataset/mustc/en-fr/config_st.yaml
   eval_bleu: true
   eval_bleu_detok: moses
   eval_tokenized_bleu: false
   eval_bleu_bpe: sentencepiece
-  eval_bleu_args: '{"beam": 5, "prefix_size": 1, "lenpen": 0.8}'
+  eval_bleu_args: '{"beam": 5, "prefix_size": 1, "lenpen": 1.2}'
   eval_bleu_print_samples: true
-  lang_pairs: en-de
-  lang_prefix_tok: <lang:de>
+  lang_pairs: en-fr
+  lang_prefix_tok: <lang:fr>
 
 criterion:
   _name: label_smoothed_cross_entropy_with_projection_disentanglement
@@ -70,13 +70,13 @@ dataset:
 
 distributed_training:
   ddp_backend: legacy_ddp
-  distributed_world_size: 1
+  distributed_world_size: 2
 
 optimization:
   max_update: 500000
   clip_norm: 10.0
   lr: [1e-4]
-  update_freq: [2]
+  update_freq: [1]
 
 optimizer:
   _name: adam

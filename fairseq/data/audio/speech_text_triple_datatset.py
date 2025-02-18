@@ -160,8 +160,8 @@ class SpeechTextTripleDataset(SpeechToTextDataset):
         pitch, noise = None, None
         if self.pitch[index] is not None:
             pitch = int(self.pitch[index])
-        if self.pitch[index] is not None:
-            noise = int(self.pitch[index])
+        if self.noise[index] is not None:
+            noise = int(self.noise[index])
         return index, audio, src_text, tgt_text, speaker_id, audio_aug, pitch, noise
 
     def collater(
@@ -185,7 +185,7 @@ class SpeechTextTripleDataset(SpeechToTextDataset):
             n_frames, order = n_frames.sort(descending=True)
             indices = indices.index_select(0, order)
             frames = frames.index_select(0, order)
-            if self.split == "train_st_aug":
+            if self.split == "train_st_aug" or self.split == "dev_st_aug":
                 frames_aug = _collate_frames(
                     [s for _, _, _, _, _, s, _, _ in samples], self.cfg.use_audio_input
                 )

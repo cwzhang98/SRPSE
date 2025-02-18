@@ -1,0 +1,93 @@
+common:
+  fp16: true
+  fp16_scale_window: 5000
+  log_format: json
+  log_interval: 100
+  tensorboard_logdir: ???
+
+checkpoint:
+  save_dir: ???
+  restore_file: ???
+  keep_last_epochs: 15
+  best_checkpoint_metric: bleu
+  maximize_best_checkpoint_metric: true
+  patience: 10
+
+task:
+  _name: speech_to_text_with_progressive_training
+  data: ???
+  config_yaml: /home2/cwzhang98/dataset/mustc/en-de/config_st.yaml
+  eval_bleu: true
+  eval_bleu_detok: moses
+  eval_tokenized_bleu: false
+  eval_bleu_bpe: sentencepiece
+  eval_bleu_args: '{"beam": 5, "prefix_size": 1, "lenpen": 1.0}'
+  eval_bleu_print_samples: true
+  lang_pairs: en-de
+  lang_prefix_tok: <lang:de>
+  external_mt_data: /home2/cwzhang98/dataset/wmt16/en-de/bin
+  text_data_sample_ratio: 0.25
+  max_audio_tokens: 2500000
+  max_text_tokens: 40000
+
+criterion:
+  _name: label_smoothed_cross_entropy_with_projection_disentanglement_extra_mt
+  label_smoothing: 0.1
+  report_accuracy: true
+  ignore_prefix_size: 1
+  consistency_weight: ???
+  jsd_weight: ???
+
+model:
+  _name: w2v_transformer_with_projection_disentanglement
+  w2v_model_path: ???
+  freeze_w2v: false
+  activation_fn: relu
+  dropout: 0.1
+  attention_dropout: 0.1
+  activation_dropout: 0.1
+  encoder_layers: 6
+  encoder_embed_dim: 512
+  encoder_ffn_embed_dim: 2048
+  encoder_attention_heads: 8
+  encoder_normalize_before: true
+  no_positional_embeddings: false
+  encoder_learned_pos: false
+  decoder_layers: 6
+  decoder_embed_dim: 512
+  decoder_ffn_embed_dim: 2048
+  decoder_attention_heads: 8
+  decoder_normalize_before: true
+  share_decoder_input_output_embed: true
+  layernorm_embedding: false
+  no_scale_embedding: false
+  non_content_encoder_layers: 1
+  mt_ckpt_path: /home2/cwzhang98/project/MYST/checkpoints/mt_en_de_10000.pt
+
+dataset:
+  num_workers: 8
+  max_tokens: 2500000
+  train_subset: train_st_aug
+  valid_subset: tst-COMMON_st
+  update_epoch_batch_itr: false
+  skip_invalid_size_inputs_valid_test: true
+  batch_size: 100
+
+distributed_training:
+  ddp_backend: legacy_ddp
+  distributed_world_size: 2
+
+optimization:
+  max_update: 500000
+  clip_norm: 10.0
+  lr: [1e-4]
+  update_freq: [1]
+
+optimizer:
+  _name: adam
+  adam_betas: (0.9,0.98)
+  adam_eps: 1e-08
+
+lr_scheduler:
+  _name: inverse_sqrt
+  warmup_updates: 25_000

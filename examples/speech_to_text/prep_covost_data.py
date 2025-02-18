@@ -166,7 +166,7 @@ class CoVoST(Dataset):
 
     def __getitem__(
         self, n: int
-    ) -> Tuple[Tensor, int, str, str, Optional[str], str, str]:
+    ) -> Tuple[str, str, str, str, str]:
         """Load the n-th sample from the dataset.
 
         Args:
@@ -178,12 +178,13 @@ class CoVoST(Dataset):
         """
         data = self.data[n]
         path = self.root / "clips" / data["path"]
-        waveform, sample_rate = torchaudio.load(path)
+        # waveform, sample_rate = torchaudio.load(path)
         sentence = data["sentence"]
         translation = None if self.no_translation else data["translation"]
         speaker_id = data["client_id"]
         _id = data["path"].replace(".mp3", "")
-        return waveform, sample_rate, sentence, translation, speaker_id, _id
+        return path, sentence, translation, speaker_id, _id
+        # return waveform, sample_rate, sentence, translation, speaker_id, _id
 
     def __len__(self) -> int:
         return len(self.data)
@@ -194,22 +195,22 @@ def process(args):
     if not root.is_dir():
         raise NotADirectoryError(f"{root} does not exist")
     # Extract features
-    feature_root = root / "fbank80"
-    feature_root.mkdir(exist_ok=True)
-    for split in CoVoST.SPLITS:
-        print(f"Fetching split {split}...")
-        dataset = CoVoST(root, split, args.src_lang, args.tgt_lang)
-        print("Extracting log mel filter bank features...")
-        for waveform, sample_rate, _, _, _, utt_id in tqdm(dataset):
-            extract_fbank_features(
-                waveform, sample_rate, feature_root / f"{utt_id}.npy"
-            )
+    # feature_root = root / "fbank80"
+    # feature_root.mkdir(exist_ok=True)
+    # for split in CoVoST.SPLITS:
+    #     print(f"Fetching split {split}...")
+    #     dataset = CoVoST(root, split, args.src_lang, args.tgt_lang)
+    #     print("Extracting log mel filter bank features...")
+    #     for waveform, sample_rate, _, _, _, utt_id in tqdm(dataset):
+    #         extract_fbank_features(
+    #             waveform, sample_rate, feature_root / f"{utt_id}.npy"
+    #         )
     # Pack features into ZIP
-    zip_path = root / "fbank80.zip"
-    print("ZIPing features...")
-    create_zip(feature_root, zip_path)
-    print("Fetching ZIP manifest...")
-    audio_paths, audio_lengths = get_zip_manifest(zip_path)
+    # zip_path = root / "fbank80.zip"
+    # print("ZIPing features...")
+    # create_zip(feature_root, zip_path)
+    # print("Fetching ZIP manifest...")
+    # audio_paths, audio_lengths = get_zip_manifest(zip_path)
     # Generate TSV manifest
     print("Generating manifest...")
     train_text = []
@@ -219,15 +220,17 @@ def process(args):
     for split in CoVoST.SPLITS:
         manifest = {c: [] for c in MANIFEST_COLUMNS}
         dataset = CoVoST(root, split, args.src_lang, args.tgt_lang)
-        for _, _, src_utt, tgt_utt, speaker_id, utt_id in tqdm(dataset):
+        for audio_path, src_utt, tgt_utt, speaker_id, utt_id in tqdm(dataset):
             manifest["id"].append(utt_id)
-            manifest["audio"].append(audio_paths[utt_id])
-            manifest["n_frames"].append(audio_lengths[utt_id])
-            manifest["tgt_text"].append(src_utt if args.tgt_lang is None else tgt_utt)
+            manifest["audio"].append(audio_path)
+            # manifest["n_frames"].append(audio_path)
+            manifest["src_text"].append(src_utt)
+            manifest["tgt_text"].append(tgt_utt)
             manifest["speaker"].append(speaker_id)
         is_train_split = split.startswith("train")
         if is_train_split:
             train_text.extend(manifest["tgt_text"])
+            train_text.extend(manifest["src_text"])
         df = pd.DataFrame.from_dict(manifest)
         df = filter_manifest_df(df, is_train_split=is_train_split)
         save_df_to_tsv(df, root / f"{split}_{task}.tsv")
@@ -241,17 +244,21 @@ def process(args):
             Path(f.name),
             root / spm_filename_prefix,
             args.vocab_type,
-            args.vocab_size
+            args.vocab_size,
+            special_symbols=[f"<lang:{args.src_lang}>", "<lang:en>"],
+            accept_language=[f"{args.src_lang}", "en"]
         )
     # Generate config YAML
     gen_config_yaml(
         root,
+        args.src_lang,
         spm_filename=spm_filename_prefix + ".model",
         yaml_filename=f"config_{task}.yaml",
-        specaugment_policy="lb",
+        prepend_tgt_lang_tag=True,
+        prepend_src_lang_tag=True
     )
     # Clean up
-    shutil.rmtree(feature_root)
+    # shutil.rmtree(feature_root)
 
 
 def main():

@@ -6,7 +6,7 @@ from typing import List, Optional
 import torch
 from torch import Tensor
 from argparse import Namespace
-from fairseq.data import encoders
+from fairseq.data import encoders, iterators
 from fairseq.dataclass import FairseqDataclass
 from fairseq.data.dictionary import Dictionary
 from fairseq.tasks import register_task, FairseqTask
@@ -201,7 +201,8 @@ class SpeechToTextWithProgressiveTrainingTask(FairseqTask):
     ):
         langs = self.cfg.lang_pairs.split("-")
         lang_token_ids = {
-            self.tgt_dict.indices[SpeechTextTripleDataset.LANG_TAG_TEMPLATE.format(langs[1])]
+            self.tgt_dict.indices[SpeechTextTripleDataset.LANG_TAG_TEMPLATE.format(langs[1])],
+            self.tgt_dict.indices["<lang:en>"]
         }
         # remove language token during generating
         extra_gen_cls_kwargs = {"symbols_to_strip_from_output": lang_token_ids}
@@ -243,14 +244,13 @@ class SpeechToTextWithProgressiveTrainingTask(FairseqTask):
                     st_dataset,
                     [self.cfg.max_audio_positions, self.cfg.max_target_positions],
                     self.cfg.max_audio_tokens,
-                    self.cfg.batch_size
+                    50
                 ),
                 ModalityDatasetItem(
                     "text_to_text",
                     text_dataset,
                     [self.cfg.max_source_positions, self.cfg.max_target_positions],
-                    self.cfg.max_text_tokens,
-                    self.cfg.batch_size
+                    self.cfg.max_text_tokens
                 )
             ]
             self.datasets[split] = MultiModalityDataset(muti_modal_dataset)
@@ -264,7 +264,7 @@ class SpeechToTextWithProgressiveTrainingTask(FairseqTask):
             self.cfg.external_mt_data,
             split,
             src,
-            self.src_dict,
+            self.tgt_dict,
             tgt,
             self.tgt_dict,
             combine=False,
@@ -318,6 +318,27 @@ class SpeechToTextWithProgressiveTrainingTask(FairseqTask):
                 grouped_shuffling,
                 update_epoch_batch_itr
             )
+        assert isinstance(dataset, MultiModalityDataset)
+        assert len(dataset.datasets) == 2
+        dataset.set_epoch(epoch)
+        batch_samplers = dataset.get_batch_samplers([1.0, self.cfg.text_data_sample_ratio],
+                                                    required_batch_size_multiple,
+                                                    seed)
+        # return a reusable, sharded iterator
+        epoch_iter = iterators.GroupedEpochBatchIterator(
+            dataset=dataset,
+            collate_fn=dataset.collater,
+            batch_samplers=batch_samplers,
+            seed=seed,
+            num_shards=num_shards,
+            shard_id=shard_id,
+            num_workers=num_workers,
+            epoch=epoch,
+            mult_rate=1,
+            buffer_size=data_buffer_size,
+        )
+        self.dataset_to_epoch_iter[dataset] = {}  # refresh it every epoch
+        return epoch_iter
 
     def build_dataset_for_inference(
             self,

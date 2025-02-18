@@ -10,8 +10,8 @@ from fairseq.criterions.label_smoothed_cross_entropy import (
 )
 from fairseq.criterions.label_smoothed_cross_entropy_with_multitask import (
     LabelSmoothedCrossEntropyWithMultitask,
-    label_smoothed_nll_loss
 )
+from fairseq.models.speech_to_text.CLUB import CLUBSample_group
 
 
 @dataclass
@@ -48,6 +48,9 @@ class LabelSmoothedCrossEntropyWithProjectionDisentanglement(
         super().__init__(task, sentence_avg, label_smoothing, ignore_prefix_size, report_accuracy)
         self.consistency_weight = consistency_weight
         self.jsd_weight = jsd_weight
+        self.mi_net = CLUBSample_group(512, 512, 1024)
+        self.mi_optimizer = torch.optim.Adam(self.mi_net.parameters(), lr=1e-3)
+        self.mi_net.cuda()
 
     def forward(self, model, sample, reduce=True):
         net_output = model(**sample["net_input"], is_audio_input=True)
@@ -58,6 +61,13 @@ class LabelSmoothedCrossEntropyWithProjectionDisentanglement(
         spk_loss, noise_loss, consistency_loss = torch.tensor(0.), torch.tensor(0.), torch.tensor(0.)
         if model.training:
             net_output, encoder_out = net_output
+            for _ in range(10):
+                self.mi_optimizer.zero_grad()
+                p_feats = net_output["purified_feats"].detach()
+                nc_feats = net_output["non_content_feats"].detach()
+                lld = -self.mi_net.loglikeli(p_feats, nc_feats)
+                lld.backward()
+                self.mi_optimizer.step()
             if sample["net_input_aug"]["src_tokens"] is not None:
                 net_output_aug, encoder_out_aug = model(**sample["net_input_aug"], is_audio_input=True)
         if sample["target"] is not None:
@@ -95,10 +105,11 @@ class LabelSmoothedCrossEntropyWithProjectionDisentanglement(
                     ) / 2
                 consistency_loss = F.mse_loss(encoder_out["purified_feats"].mean(dim=0).float(),
                                               encoder_out_aug["purified_feats"].mean(dim=0).float(), reduction="sum")
+                mi_loss = self.mi_net.mi_est(net_output["purified_feats"], net_output["non_content_feats"])
         sample_size = (
             sample["target"].size(0) if self.sentence_avg else sample["target_ntokens"]
         )
-        loss = st_loss + mt_loss + asr_loss + jsd_loss + noise_loss + spk_loss + st_loss_aug + self.consistency_weight * consistency_loss
+        loss = st_loss + mt_loss + asr_loss + jsd_loss + noise_loss + spk_loss + st_loss_aug + self.consistency_weight * consistency_loss + 0.01 * mi_loss
 
         logging_output = {
             "loss": utils.item(loss.data),
@@ -127,7 +138,7 @@ class LabelSmoothedCrossEntropyWithProjectionDisentanglement(
     @classmethod
     def reduce_metrics(cls, logging_outputs):
         loss_sum = sum(log.get("loss", 0) for log in logging_outputs)
-        nll_loss_st_sum = sum(log.get("nll_loss", 0) for log in logging_outputs)
+        nll_loss_st_sum = sum(log.get("nll_loss_st", 0) for log in logging_outputs)
         nll_loss_mt_sum = sum(log.get("nll_loss_mt", 0) for log in logging_outputs)
         jsd_loss_sum = sum(log.get("jsd_loss", 0) for log in logging_outputs)
         asr_loss_sum = sum(log.get("asr_loss", 0) for log in logging_outputs)

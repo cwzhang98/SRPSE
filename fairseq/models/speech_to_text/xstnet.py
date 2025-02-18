@@ -278,11 +278,14 @@ class XSTNetEncoder(FairseqEncoder):
         """
         if is_audio_input:  # forward audio
             x, encoder_padding_mask, ctc_logits, ctc_padding_mask = self.encode_audio(src_tokens, src_lengths)
+            speech_repr = x.clone()
         else:  # forward text
             x, encoder_padding_mask = self.encode_text(src_tokens)
-
+            text_repr = x.clone()
+        encoder_states = []
         for index, layer in enumerate(self.transformer_layers):
             x = layer(x, encoder_padding_mask)
+            encoder_states.append(x)
 
         if self.layer_norm is not None:
             x = self.layer_norm(x)
@@ -293,10 +296,11 @@ class XSTNetEncoder(FairseqEncoder):
             "ctc_logits": ctc_logits if is_audio_input else None,
             "ctc_padding_mask": ctc_padding_mask if is_audio_input else None,
             "encoder_embedding": None,  # T x B x C
-            "encoder_states": None,
+            "encoder_states": encoder_states,
             "src_tokens": None,
             "src_lengths": None,
-            "shared_encoder_states": None,
+            "speech_repr": speech_repr if is_audio_input else None,
+            "text_repr": text_repr if not is_audio_input else None,
         }
 
     def reorder_encoder_out(self, encoder_out, new_order):
